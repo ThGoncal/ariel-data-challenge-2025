@@ -1,0 +1,32 @@
+project:
+  name: ${PROJECT_NAME}
+  version: "1.0.0"
+
+data:
+  raw_path: data/raw
+  processed_path: data/processed
+  test_size: 0.2
+  random_state: 42
+
+model:
+  name: baseline
+  params:
+    n_estimators: 100
+    max_depth: 5
+    learning_rate: 0.1
+
+mlflow:
+  experiment_name: ${MLFLOW_EXPERIMENT_NAME}
+  run_name: null  # auto-généré si null
+  tags:
+    team: mlops
+    project: ${PROJECT_NAME}
+
+training:
+  epochs: 50
+  batch_size: 32
+  early_stopping_patience: 5
+
+serving:
+  host: ${API_HOST}
+  port: ${API_PORT}

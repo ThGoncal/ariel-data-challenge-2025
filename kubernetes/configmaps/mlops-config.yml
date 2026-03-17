@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+data:
+  mlflow_uri: "http://mlflow:5000"
+  environment: "production"

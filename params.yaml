@@ -1,0 +1,17 @@
+data:
+  test_size: 0.2
+  random_state: 42
+
+train:
+  model: random_forest
+  n_estimators: 100
+  max_depth: 5
+  learning_rate: 0.01
+
+mlflow:
+  experiment_name: "mlops-template"
+  tracking_uri: "http://localhost:5000"
+
+monitoring:
+  drift_threshold: 0.05
+  reference_data: "data/processed/reference.csv"

@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.eggs/
+dist/
+build/
+
+# Environment
+.env
+*.env.local
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Data (versioned by DVC)
+data/raw/*
+data/processed/*
+data/external/*
+!data/**/.gitkeep
+
+# Models
+models/
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Airflow
+airflow/logs/*
+!airflow/logs/.gitkeep
+
+# DVC
+/tmp
+
+# Monitoring
+monitoring/evidently/reports/*
+!monitoring/evidently/reports/.gitkeep
+
+# Kubernetes secrets
+kubernetes/secrets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

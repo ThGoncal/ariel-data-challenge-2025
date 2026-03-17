@@ -1,0 +1,7 @@
+[core]
+    autostage = true
+[remote "storage"]
+    url = s3://your-bucket/dvc-store
+    # Swap with: gs://, azure://, or a local path for testing
+[core]
+    remote = storage

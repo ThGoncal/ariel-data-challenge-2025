@@ -1,0 +1,4 @@
+# Ignore notebooks and source code from DVC tracking
+notebooks/
+src/
+*.py

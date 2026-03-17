@@ -1,0 +1,105 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.0
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+    - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY}
+    - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
+    - MLFLOW_TRACKING_URI=http://mlflow:5000
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./src:/opt/airflow/src
+  depends_on:
+    - postgres
+
+services:
+  # ─── Database ───────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+
+  # ─── MLflow ─────────────────────────────────────────────
+  mlflow:
+    build:
+      context: ./docker/mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+
+  # ─── Airflow ────────────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+  airflow-init:
+    <<: *airflow-common
+    command: >
+      bash -c "airflow db init &&
+               airflow users create --username ${AIRFLOW_ADMIN_USER:-admin}
+               --password ${AIRFLOW_ADMIN_PASSWORD:-admin}
+               --firstname Admin --lastname User
+               --role Admin --email admin@example.com"
+
+  # ─── Prometheus ─────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+
+  # ─── Grafana ────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  mlflow_data:
+  prometheus_data:
+  grafana_data:

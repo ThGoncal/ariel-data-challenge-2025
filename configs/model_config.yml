@@ -1,0 +1,25 @@
+# Model Configuration
+model:
+  name: "random_forest_classifier"
+  version: "1.0.0"
+  
+  hyperparameters:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    random_state: 42
+
+training:
+  test_size: 0.2
+  validation_size: 0.1
+  stratify: true
+  
+features:
+  target: "label"
+  numerical: []
+  categorical: []
+  drop: []
+
+mlflow:
+  experiment_name: "my-experiment"
+  tracking_uri: "http://localhost:5000"

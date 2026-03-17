@@ -1,0 +1,30 @@
+stages:
+  prepare:
+    cmd: python src/features/build_features.py
+    deps:
+      - src/features/build_features.py
+      - data/raw
+    params:
+      - data
+    outs:
+      - data/processed
+
+  train:
+    cmd: python src/models/train.py
+    deps:
+      - src/models/train.py
+      - data/processed
+    params:
+      - train
+      - mlflow
+    outs:
+      - artifacts/model
+
+  evaluate:
+    cmd: python src/models/evaluate.py
+    deps:
+      - src/models/evaluate.py
+      - artifacts/model
+      - data/processed
+    metrics:
+      - metrics/scores.json
