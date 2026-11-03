@@ -1,182 +1,42 @@
-# .github/workflows/ci.yml
-# =============================================================================
-# CI/CD — Ariel Data Challenge 2025
-# =============================================================================
-# Ce workflow s'exécute sur chaque push et pull request.
-#
-# Jobs :
-#   1. test  : Lance les tests unitaires via le container Docker dédié
-#   2. build : Vérifie que toutes les images Docker se buildent correctement
-#   3. lint  : Vérifie la qualité du code (flake8 + black)
-#
-# Le job "test" utilise l'image Docker ariel-test pour garantir que les tests
-# s'exécutent dans le même environnement que la production — pas de "ça marche
-# sur ma machine" possible.
-# =============================================================================
-
+# CI — Ariel Data Challenge 2025
+# 1. lint : erreurs réelles uniquement (syntaxe, noms indéfinis) — pas de style imposé
+# 2. tests : tests unitaires du projet (hors tests lents)
+# Les builds Docker ne sont pas dans la CI tant qu'ils n'ont pas été validés en local.
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
 env:
-  PYTHON_VERSION: "3.11"
-  # Désactive la compilation CUDA pendant les tests CI (pas de GPU sur GitHub Actions)
   NUMBA_NUM_THREADS: "1"
 
 jobs:
-
-  # ===========================================================================
-  # JOB 1 : Tests unitaires
-  # ===========================================================================
-  test:
-    name: "Tests unitaires"
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
-
-      # Cache des layers Docker pour accélérer les builds CI
-      - name: Configurer le cache Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache des layers Docker
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-test-${{ hashFiles('docker/test/Dockerfile', 'requirements/test.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-test-
-
-      # Build de l'image de test
-      - name: Build de l'image ariel-test
-        run: |
-          docker build \
-            --file docker/test/Dockerfile \
-            --tag ariel-test:ci \
-            --cache-from type=local,src=/tmp/.buildx-cache \
-            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            .
-
-      - name: Rotation du cache Docker
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-      # Création du dossier de rapports
-      - name: Créer le dossier reports/
-        run: mkdir -p reports
-
-      # Lancement des tests dans le container
-      - name: Lancer les tests pytest
-        run: |
-          docker run --rm \
-            --volume ${{ github.workspace }}/reports:/app/reports \
-            ariel-test:ci \
-            tests/ \
-            -m "not slow and not integration" \
-            --tb=short \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=xml:/app/reports/coverage.xml \
-            -q
-
-      # Publication du rapport de couverture sur Codecov (optionnel)
-      - name: Upload coverage vers Codecov
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          files: reports/coverage.xml
-          fail_ci_if_error: false
-
-
-  # ===========================================================================
-  # JOB 2 : Vérification des builds Docker
-  # ===========================================================================
-  build:
-    name: "Build des images Docker"
-    runs-on: ubuntu-latest
-    # Ce job s'exécute en parallèle avec "test" — ils sont indépendants
-    needs: []
-
-    strategy:
-      # Lance un job pour chaque image — ils s'exécutent en parallèle
-      matrix:
-        include:
-          - stage: download
-            dockerfile: docker/download/Dockerfile
-            requirements: requirements/download.txt
-          - stage: processing
-            dockerfile: docker/processing/Dockerfile
-            requirements: requirements/processing.txt
-          # Le container train est lourd (PyTorch CUDA) — on le build
-          # uniquement sur des tags de version, pas sur chaque push
-          # - stage: train
-          #   dockerfile: docker/train/Dockerfile
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers - ${{ matrix.stage }}
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache-${{ matrix.stage }}
-          key: ${{ runner.os }}-buildx-${{ matrix.stage }}-${{ hashFiles(matrix.dockerfile, matrix.requirements) }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.stage }}-
-
-      - name: Build image ${{ matrix.stage }}
-        run: |
-          docker buildx build \
-            --file ${{ matrix.dockerfile }} \
-            --tag ariel-${{ matrix.stage }}:ci \
-            --cache-from type=local,src=/tmp/.buildx-cache-${{ matrix.stage }} \
-            --cache-to type=local,dest=/tmp/.buildx-cache-${{ matrix.stage }}-new,mode=max \
-            --load \
-            .
-          echo "✅ Image ariel-${{ matrix.stage }} buildée avec succès"
-
-
-  # ===========================================================================
-  # JOB 3 : Qualité du code
-  # ===========================================================================
   lint:
-    name: "Lint et formatage"
+    name: Lint
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ruff (erreurs bloquantes uniquement)
+        run: uvx ruff check src tests scripts airflow --select E9,F63,F7,F82
 
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+  tests:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-lint-${{ hashFiles('requirements/test.txt') }}
-
-      - name: Installer les outils de lint
-        run: pip install flake8 black isort
-
-      - name: "Black — vérification du formatage"
-        run: black --check --diff src/ tests/
-
-      - name: "isort — vérification des imports"
-        run: isort --check-only --diff src/ tests/
-
-      - name: "Flake8 — vérification du style"
-        run: |
-          flake8 src/ tests/ \
-            --max-line-length=100 \
-            --extend-ignore=E203,W503 \
-            --exclude=__pycache__,.venv
+          enable-cache: true
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: uv sync --dev
+      - name: Pytest
+        # test_train.py et tests/integration viennent du template (API de l'ancien projet) :
+        # exclus tant qu'ils ne sont pas adaptés ou supprimés.
+        run: >
+          uv run python -m pytest tests/unit -m "not slow" -q
+          --ignore=tests/unit/test_train.py
