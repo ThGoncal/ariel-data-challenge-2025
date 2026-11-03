@@ -1,0 +1,102 @@
+schema: '2.0'
+stages:
+  meta:
+    cmd: python -m src.data.collect --mode meta
+    deps:
+    - path: src/data/collect.py
+      hash: md5
+      md5: a933a4826662e38311fb387c46809448
+      size: 18043
+    outs:
+    - path: data/raw/adc_info.csv
+      hash: md5
+      md5: 864ff92e7ec5a5beec2cc5fc63ace9ca
+      size: 98
+    - path: data/raw/axis_info.parquet
+      hash: md5
+      md5: b944ad24fbeae7f27d67a59e6afc3cdf
+      size: 1364591
+    - path: data/raw/sample_submission.csv
+      hash: md5
+      md5: 0450478e20eccea7425844d355ec3865
+      size: 8009
+    - path: data/raw/test_star_info.csv
+      hash: md5
+      md5: 8187ce45a1594de413ebadec4bc9ea4a
+      size: 177
+    - path: data/raw/train.csv
+      hash: md5
+      md5: a593e19ea03b5bb5e1e92bf29785b390
+      size: 6483086
+    - path: data/raw/train_star_info.csv
+      hash: md5
+      md5: fbc03a9ca1a713b55ee35263a3eff5a1
+      size: 156269
+    - path: data/raw/wavelengths.csv
+      hash: md5
+      md5: a1611de321c578328e10f3394dfa993e
+      size: 7058
+  incremental:
+    cmd: python -m src.pipelines.incremental --params params.yaml --mlflow
+    deps:
+    - path: data/raw/adc_info.csv
+      hash: md5
+      md5: 864ff92e7ec5a5beec2cc5fc63ace9ca
+      size: 98
+    - path: data/raw/axis_info.parquet
+      hash: md5
+      md5: b944ad24fbeae7f27d67a59e6afc3cdf
+      size: 1364591
+    - path: data/raw/train.csv
+      hash: md5
+      md5: a593e19ea03b5bb5e1e92bf29785b390
+      size: 6483086
+    - path: data/raw/train_star_info.csv
+      hash: md5
+      md5: fbc03a9ca1a713b55ee35263a3eff5a1
+      size: 156269
+    - path: data/raw/wavelengths.csv
+      hash: md5
+      md5: a1611de321c578328e10f3394dfa993e
+      size: 7058
+    - path: src/ml
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: src/pipelines/incremental.py
+      hash: md5
+      md5: 6ded7bdf628c0a9406d6ae24cccc2ee5
+      size: 18166
+    - path: src/signal_processing
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    params:
+      params.yaml:
+        incremental:
+          batch_size: 10
+          val_size: 20
+          max_batches: 30
+          patience: 3
+          min_delta: 0.001
+          smooth_window: 3
+          min_train_for_fit: 20
+          seed: 42
+        signal.binning_airs: 5
+        signal.binning_fgs1: 20
+    outs:
+    - path: data/processed/incremental
+      hash: md5
+      md5: b66ff7bf2b48c1b584a0b3c902ac4b35.dir
+      size: 617331
+      nfiles: 5
+    - path: reports/incremental/history.csv
+      hash: md5
+      md5: 4e73a9642752fd2cee602d6d20b2356c
+      size: 124
+    - path: reports/incremental/metrics.json
+      hash: md5
+      md5: 27a3aedb2c247f876340cd6067b3ad2d
+      size: 178

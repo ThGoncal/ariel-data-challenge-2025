@@ -1,0 +1,56 @@
+# =============================================================================
+# docker/processing/Dockerfile
+# Étape : traitement du signal (calibration, hot pixels, extraction Rp/Rs)
+# =============================================================================
+# Cette étape est CPU-intensive (Numba + joblib parallèle).
+# On utilise python:3.11-slim + compilation Numba JIT au premier run.
+#
+# STRATÉGIE DE CACHE NUMBA :
+# Numba compile le code @njit à la première exécution et met en cache
+# le résultat dans NUMBA_CACHE_DIR. On monte ce dossier comme volume
+# pour que la compilation survive entre les runs du container.
+# Sans ça, chaque `docker run` recompile tout (~30s de warm-up).
+# =============================================================================
+
+FROM python:3.11-slim
+
+LABEL stage="processing"
+LABEL description="Traitement du signal : calibration + extraction spectres Rp/Rs"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Dossier de cache Numba — monté comme volume pour persistance entre runs
+    NUMBA_CACHE_DIR=/app/.numba_cache \
+    # Désactive les warnings de déprecation Numba dans les logs
+    NUMBA_DISABLE_PERFORMANCE_WARNINGS=1 \
+    # 1 thread Numba : la parallélisation est gérée par joblib au niveau planète
+    NUMBA_NUM_THREADS=1
+
+WORKDIR /app
+
+# --- Dépendances système
+# gcc, g++ : nécessaires pour compiler les extensions C de Numba/llvmlite
+# libgomp1 : OpenMP pour la parallélisation Numba (prange)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Dépendances Python (couche cachée séparément du code)
+COPY requirements/processing.txt requirements/processing.txt
+RUN pip install -r requirements/processing.txt
+
+# --- Code source du signal processing
+COPY src/signal_processing/ src/signal_processing/
+COPY params.yaml params.yaml
+
+# --- Volumes
+# /app/data/raw       : données brutes en lecture (produites par download)
+# /app/data/processed : CSVs produits (partagé avec le container train)
+# /app/.numba_cache   : cache de compilation Numba (persistance entre runs)
+VOLUME ["/app/data/raw", "/app/data/processed", "/app/.numba_cache"]
+
+ENTRYPOINT ["python", "src/signal_processing/run_processing.py"]
+CMD ["--split", "all"]

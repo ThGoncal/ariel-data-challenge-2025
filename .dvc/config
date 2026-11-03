@@ -1,7 +1,5 @@
 [core]
     autostage = true
-[remote "storage"]
-    url = s3://your-bucket/dvc-store
-    # Swap with: gs://, azure://, or a local path for testing
-[core]
     remote = storage
+['remote "storage"']
+    url = https://dagshub.com/ThGoncal/ariel-data-challenge-2025.dvc

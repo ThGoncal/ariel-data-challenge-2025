@@ -1,0 +1,8 @@
+# requirements/download.txt
+# Dépendances minimales pour le téléchargement Kaggle
+# Taille image estimée : ~150 Mo
+
+kaggle>=1.6.0
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+requests>=2.31.0

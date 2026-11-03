@@ -1,39 +1,42 @@
-name: CI Pipeline
+# CI — Ariel Data Challenge 2025
+# 1. lint : erreurs réelles uniquement (syntaxe, noms indéfinis) — pas de style imposé
+# 2. tests : tests unitaires du projet (hors tests lents)
+# Les builds Docker ne sont pas dans la CI tant qu'ils n'ont pas été validés en local.
+name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
+env:
+  NUMBA_NUM_THREADS: "1"
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
-
-      - name: Run tests
-        run: pytest tests/ --cov=src --cov-report=xml
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ruff (erreurs bloquantes uniquement)
+        run: uvx ruff check src tests scripts airflow --select E9,F63,F7,F82
+
+  tests:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.10"
-      - run: pip install ruff
-      - run: ruff check src/
+          enable-cache: true
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: uv sync --dev
+      - name: Pytest
+        # test_train.py et tests/integration viennent du template (API de l'ancien projet) :
+        # exclus tant qu'ils ne sont pas adaptés ou supprimés.
+        run: >
+          uv run python -m pytest tests/unit -m "not slow" -q
+          --ignore=tests/unit/test_train.py

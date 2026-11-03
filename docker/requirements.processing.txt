@@ -1,0 +1,13 @@
+# requirements/processing.txt
+# Dépendances pour le traitement du signal (Numba + joblib)
+# Taille image estimée : ~1.2 Go (llvmlite/Numba est lourd)
+
+numpy>=1.26.0
+pandas>=2.1.0
+pyarrow>=14.0.0       # lecture des parquets
+numba>=0.59.0
+joblib>=1.3.0
+tqdm>=4.66.0
+scipy>=1.11.0         # pour fit_super_gaussienne (méthode fit)
+pyyaml>=6.0.1
+python-dotenv>=1.0.0

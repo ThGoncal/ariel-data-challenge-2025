@@ -1,11 +1,79 @@
-FROM python:3.11-slim
+# =============================================================================
+# docker/train/Dockerfile
+# Étape : entraînement des modèles (baseline + deep learning)
+# =============================================================================
+# Build multi-stage :
+#   Stage 1 (builder) : installe les dépendances + compile les wheels lourds
+#   Stage 2 (runtime) : copie uniquement ce qui est nécessaire à l'exécution
+#
+# Cela réduit considérablement la taille de l'image finale en excluant
+# les outils de compilation (gcc, headers) qui ne sont plus nécessaires
+# après l'installation de PyTorch et de ses dépendances.
+#
+# GPU vs CPU :
+#   - Si CUDA est disponible sur le host, PyTorch l'utilise automatiquement.
+#   - Pour forcer le CPU : passer --device cpu en argument.
+#   - L'image PyTorch de base inclut CUDA 12.1 (compatible avec la plupart
+#     des GPU NVIDIA récents).
+# =============================================================================
+
+# =============================================================================
+# STAGE 1 : Builder — installation des dépendances
+# =============================================================================
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime AS builder
+
+LABEL stage="train-builder"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --- Dépendances Python
+COPY requirements/train.txt requirements/train.txt
+RUN pip install --user -r requirements/train.txt
+# --user installe dans ~/.local pour faciliter la copie dans le stage runtime
 
-COPY src/ ./src/
-COPY params.yaml dvc.yaml ./
 
-CMD ["python", "src/models/train.py"]
+# =============================================================================
+# STAGE 2 : Runtime — image finale légère
+# =============================================================================
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime AS runtime
+
+LABEL stage="train"
+LABEL description="Entraînement : MultiTaskLassoCV baseline + MLP hétéroscédastique"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    # MLflow tracking URI — surchargeable au runtime via --env
+    MLFLOW_TRACKING_URI="" \
+    MLFLOW_TRACKING_USERNAME="" \
+    MLFLOW_TRACKING_PASSWORD="" \
+    # PyTorch : désactive les optimisations CUDA non-déterministes pour
+    # la reproductibilité (important pour les tests et la science)
+    CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+WORKDIR /app
+
+# --- Copie des packages Python installés dans le builder
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+
+# --- Code source
+COPY src/ml/         src/ml/
+COPY src/models/     src/models/
+COPY params.yaml     params.yaml
+
+# --- Volumes
+# /app/data/processed : CSVs features (produits par processing)
+# /app/models         : modèles sauvegardés + soumission CSV
+# /app/mlruns         : tracking MLflow local (si pas de server distant)
+VOLUME ["/app/data/processed", "/app/models", "/app/mlruns"]
+
+# --- Healthcheck : vérifie que Python peut importer les modules clés
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import torch; import src.models.model; print('OK')" || exit 1
+
+ENTRYPOINT ["python", "src/models/train_dl.py"]
+CMD ["--device", "auto"]

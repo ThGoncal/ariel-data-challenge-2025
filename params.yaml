@@ -1,17 +1,70 @@
+# params.yaml — Hyperparamètres versionnés du projet Ariel Data Challenge 2025
+# Toutes les valeurs "magiques" du projet sont ici.
+# DVC surveille ce fichier : un changement de valeur déclenche la re-exécution
+# des stages concernés (dvc repro).
+
+# =============================================================================
+# CHEMINS
+# =============================================================================
 data:
-  test_size: 0.2
+  raw_dir: data/raw
+  processed_dir: data/processed
+  n_planets: null            # null = toutes les planètes, entier = N premières
+
+# =============================================================================
+# TRAITEMENT DU SIGNAL
+# =============================================================================
+signal:
+  binning_airs: 5            # frames moyennées par pas de temps AIRS
+  binning_fgs1: 20           # frames moyennées par pas de temps FGS1
+  n_jobs: 4                  # workers joblib pour la parallélisation
+  sigma_hot_pixels: 5.0      # seuil sigma-clipping hot pixels
+  num_neighbors: 1           # voisins temporels pour interpolation hot pixels
+  rp_method: "median"        # "median" (rapide) ou "fit" (précis, lent)
+
+# =============================================================================
+# PREPROCESSING ML
+# =============================================================================
+preprocess:
+  test_size: 0.2             # fraction du train utilisée pour la validation
   random_state: 42
+  drop_eccentricity: true    # e=0 pour toutes les planètes du challenge 2025
 
-train:
-  model: random_forest
-  n_estimators: 100
-  max_depth: 5
-  learning_rate: 0.01
+# =============================================================================
+# MODÈLE DEEP LEARNING (à compléter lors de la phase 4)
+# =============================================================================
+model:
+  architecture: "transformer" # "mlp", "transformer", "conv1d"
+  d_model: 128
+  n_heads: 4
+  n_layers: 3
+  dropout: 0.1
+  learning_rate: 1.0e-3
+  batch_size: 64
+  n_epochs: 100
+  patience: 15               # early stopping
 
-mlflow:
-  experiment_name: "mlops-template"
-  tracking_uri: "http://localhost:5000"
+# =============================================================================
+# MODÈLE BASELINE (MultiTaskLassoCV — référence)
+# =============================================================================
+baseline:
+  alphas_min: -3             # grille log10 : 10^-3
+  alphas_max: 1              # grille log10 : 10^1
+  n_alphas: 8
+  cv: 5
+  max_iter: 5000
+  n_bootstrap: 20
 
-monitoring:
-  drift_threshold: 0.05
-  reference_data: "data/processed/reference.csv"
+# =============================================================================
+# APPRENTISSAGE INCRÉMENTAL (src/pipelines/incremental.py)
+# =============================================================================
+# batch_size / val_size / seed sont figés dans state.json au premier lancement.
+incremental:
+  batch_size: 10
+  val_size: 20
+  max_batches: 30
+  patience: 3
+  min_delta: 0.001
+  smooth_window: 3
+  min_train_for_fit: 20
+  seed: 42

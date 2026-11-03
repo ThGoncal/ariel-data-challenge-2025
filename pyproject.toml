@@ -1,0 +1,32 @@
+[project]
+name = "ariel-data-challenge-2025"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "joblib>=1.6.0",
+    "kaggle>=2.2.0",
+    "loguru>=0.7.3",
+    "matplotlib>=3.11.2",
+    "mlflow>=3.17.2",
+    "numba>=0.68.1",
+    "numpy>=2.5.4",
+    "pandas>=3.1.0",
+    "plotly>=7.1.0",
+    "pyarrow>=25.0.1",
+    "pytest>=9.2.0",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "torch>=2.15.0",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = [
+    "dvc[s3]>=3.67.1",
+    "httpx2>=2.16.0",
+    "pytest>=9.2.0",
+]

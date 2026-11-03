@@ -1,0 +1,48 @@
+# =============================================================================
+# docker/test/Dockerfile
+# Étape : tests unitaires (pytest)
+# =============================================================================
+# Image légère dédiée aux tests — séparée de l'image de production
+# pour pouvoir l'exécuter en CI sans les dépendances lourdes (PyTorch CUDA).
+#
+# On utilise python:3.11-slim + CPU-only PyTorch pour réduire la taille
+# de l'image CI de ~8 Go (CUDA) à ~1.5 Go.
+# =============================================================================
+
+FROM python:3.11-slim
+
+LABEL stage="test"
+LABEL description="Tests unitaires pytest"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Numba en mode objet pour les tests (compilation plus rapide, moins optimisée)
+    NUMBA_DISABLE_JIT=0 \
+    NUMBA_NUM_THREADS=1 \
+    NUMBA_CACHE_DIR=/tmp/numba_cache
+
+WORKDIR /app
+
+# --- Dépendances système pour Numba (nécessaire même en test)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Dépendances Python : toutes les deps de test
+COPY docker/requirements.test.txt requirements.test.txt
+RUN pip install -r requirements.test.txt
+
+# --- Code source complet (tous les modules à tester)
+COPY src/          src/
+COPY tests/        tests/
+COPY pytest.ini    pytest.ini
+COPY params.yaml   params.yaml
+
+# --- Pas de VOLUME ici : les tests ne lisent ni n'écrivent de données externes
+
+# --- Par défaut : lance tous les tests (sauf @slow et @integration)
+ENTRYPOINT ["python", "-m", "pytest"]
+CMD ["tests/", "-m", "not slow and not integration", "--tb=short", "-q"]

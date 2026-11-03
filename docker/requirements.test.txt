@@ -1,0 +1,30 @@
+# requirements/test.txt
+# Dépendances pour les tests unitaires
+# CPU-only PyTorch pour réduire la taille de l'image CI (~1.5 Go vs 8 Go CUDA)
+
+# PyTorch CPU-only (installé depuis l'index PyTorch officiel)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+
+# Stack scientifique
+numpy>=1.26.0
+pandas>=2.1.0
+scipy>=1.11.0
+scikit-learn>=1.4.0
+
+# Signal processing
+numba>=0.59.0
+pyarrow>=14.0.0
+joblib>=1.3.0
+
+# ML / tracking
+mlflow>=2.10.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+matplotlib>=3.8.0
+
+# Tests
+pytest>=8.0.0
+pytest-cov>=4.1.0     # couverture de code
+pytest-xdist>=3.5.0   # parallélisation des tests avec -n auto

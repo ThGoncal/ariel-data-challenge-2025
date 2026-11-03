@@ -1,93 +1,76 @@
-# 🚀 MLOps Project Template
+# NeurIPS — Ariel Data Challenge 2025 · pipeline MLOps incrémental
 
-> Production-ready MLOps template integrating the full ML lifecycle: from data versioning to model monitoring.
+Extraction du spectre de transmission d'exoplanètes (mission ESA Ariel, données simulées) et
+prédiction **μ ± σ** de Rp/Rs sur 283 longueurs d'onde, avec une chaîne MLOps complète.
+Métrique : Gaussian Log-Likelihood normalisée (0 = baseline naïve, 1 = oracle).
 
-## 🏗️ Stack
+## Le problème d'ingénierie
 
-| Tool | Usage |
-|------|-------|
-| 🐳 **Docker** | Containerization & orchestration |
-| 🔬 **MLflow** | Experiment tracking & model registry |
-| 🌀 **Airflow** | Pipeline orchestration & scheduling |
-| 📦 **DVC** | Data & model versioning |
-| 📊 **Prometheus + Grafana** | Infrastructure & performance monitoring |
-| 🔍 **Evidently** | Data drift & model monitoring |
-| ☸️ **Kubernetes** | Production deployment & scaling |
-
-## 📁 Project Structure
+Le dataset pèse **~264 Go** (1100 planètes × ~240 Mo). Il ne tient pas sur un poste de travail, et
+à ~1,5 Mo/s le télécharger entièrement prendrait environ **40 h**. Plutôt que de subir cette
+contrainte, le projet en fait un principe : un **apprentissage incrémental** qui s'arrête
+quand les données supplémentaires n'améliorent plus le modèle.
 
 ```
-mlops-template/
-├── .github/                    # CI/CD workflows & issue templates
-├── airflow/                    # DAGs & Airflow configuration
-├── configs/                    # Environment configurations
-├── data/                       # Data (versioned with DVC)
-│   ├── raw/                    # Raw data (immutable)
-│   ├── processed/              # Processed data
-│   └── external/               # External data sources
-├── docker/                     # Dockerfiles per service
-├── docs/                       # Documentation
-├── dvc/                        # DVC configuration & pipelines
-├── kubernetes/                 # K8s manifests
-├── mlflow/                     # MLflow configuration
-├── monitoring/                 # Prometheus, Grafana, Evidently
-├── notebooks/                  # Jupyter notebooks (exploration)
-├── scripts/                    # Utility scripts
-├── src/                        # Source code
-│   ├── data/                   # Data ingestion & preprocessing
-│   ├── features/               # Feature engineering
-│   ├── models/                 # Training, evaluation, inference
-│   ├── monitoring/             # Monitoring & alerting logic
-│   └── pipelines/              # Pipeline definitions
-└── tests/                      # Unit & integration tests
+tirage mélangé (seed) ─► validation FIXE (traitée une fois)
+        │
+        ▼  pour chaque batch de N planètes
+ télécharger (API Kaggle) ─► traiter le signal (Numba) ─► supprimer le brut
+        ─► réentraîner sur tout l'accumulé ─► score GLL sur la validation fixe
+        ─► arrêt si le score lissé stagne `patience` batchs
 ```
 
-## 🚀 Quick Start
+Choix de conception : validation fixe (scores comparables), ordre mélangé, un fichier par batch
+(rejouer un batch ne duplique rien), état JSON (reprise après interruption), arrêt sur score lissé.
+Code : `src/pipelines/incremental.py` ; 10 tests dans `tests/unit/test_incremental.py`.
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.10+
-- kubectl (for Kubernetes)
+## Résultat
 
-### Local Setup
+![Score GLL vs nombre de planètes](docs/score_curve.png)
+
+<!-- À remplir après le run : score final, nombre de planètes à l'arrêt, gain de temps vs 1100 planètes. -->
+Courbe générée par `scripts/plot_score_curve.py` depuis `state.json` ; suivi aussi dans MLflow.
+
+## Limites connues (honnêteté sur l'état du projet)
+
+- Le spectre extrait par la méthode médiane in/out est **bruité** (bruit 5 à 10× supérieur à la
+  variation spectrale réelle sur les 3 planètes testées) et présente une **rampe systématique
+  dans le bleu** (~10 premiers canaux AIRS). Le niveau moyen est correct pour 2 planètes sur 3.
+- Le modèle de base est un Ridge avec σ constant par longueur d'onde ; le MLP hétéroscédastique
+  (`src/models/model.py`) n'est pas encore branché sur la boucle.
+- L'orchestration Airflow (`airflow/dags/ariel_incremental.py`) et le `docker-compose.yml` n'ont pas encore été validés de bout en bout.
+
+## Traitement du signal
+
+CDS (end − start), correction ADC (`/= gain`, `+= offset`), dark, flat, pixels morts, hot pixels
+(σ-clipping MAD), non-linéarité (polynôme de Horner), binning temporel, puis Rp/Rs par médianes
+in/out transit. Numba (`@njit`, `prange`) + joblib. Code dans `src/signal_processing/`.
+
+## Stack
+
+| Outil | Rôle |
+|---|---|
+| uv, pytest | environnement, tests (~100 tests unitaires) |
+| Kaggle API | téléchargement par planète |
+| MLflow | suivi du score GLL en fonction du nombre de planètes |
+| Airflow | un run = un batch, auto-déclenchement jusqu'à l'arrêt |
+| Docker / compose | profils `mlflow`, `incremental`, `airflow`, `test` |
+| DVC / DagsHub | versionnement des 7 fichiers racine et du `train.csv` enrichi |
+| GitHub Actions | CI (`.github/workflows/ci.yml`) |
+
+## Démarrage
 
 ```bash
-# Clone the template
-git clone https://github.com/YOUR_USERNAME/mlops-template.git
-cd mlops-template
-
-# Setup Python environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# Initialize DVC
-dvc init
-dvc remote add -d myremote YOUR_REMOTE_STORAGE
-
-# Start all services
-docker-compose up -d
-
-# Access the UIs
-# MLflow:    http://localhost:5000
-# Airflow:   http://localhost:8080
-# Grafana:   http://localhost:3000
-# Prometheus:http://localhost:9090
+uv sync && uv add -r requirements.txt
+uv run python -m pytest tests/unit -q -m "not slow"
+uv run python -m src.pipelines.incremental --batch-size 20 --val-size 40 --mlflow
+uv run python scripts/plot_score_curve.py
 ```
+Identifiants Kaggle : `~/.kaggle/kaggle.json` ou variables `KAGGLE_USERNAME` / `KAGGLE_KEY` (`.env`, non versionné).
 
-## 📋 Workflow
+## Structure
 
-1. **Data** → Version with DVC, ingest via `src/data/`
-2. **Features** → Engineer features via `src/features/`
-3. **Training** → Train & track experiments with MLflow
-4. **Orchestration** → Schedule pipelines with Airflow
-5. **Monitoring** → Monitor drift with Evidently, infra with Prometheus/Grafana
-6. **Deployment** → Deploy to Kubernetes via CI/CD
-
-## 📚 Documentation
-
-See [`docs/`](docs/) for detailed guides on each component.
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE)
+```
+src/data/ (collecte Kaggle) · src/signal_processing/ · src/ml/ (features, métrique)
+src/models/ (MLP, baselines) · src/pipelines/incremental.py · airflow/dags/ · docker/ · scripts/ · tests/
+```

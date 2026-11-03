@@ -1,0 +1,54 @@
+# =============================================================================
+# docker/download/Dockerfile
+# Étape : téléchargement des données depuis Kaggle
+# =============================================================================
+# Image de base légère — pas besoin de PyTorch ni Numba pour télécharger.
+# python:3.11-slim = Debian slim, Python 3.11, ~50 Mo (vs ~900 Mo pour full).
+# =============================================================================
+
+FROM python:3.11-slim
+
+# --- Métadonnées de l'image
+LABEL stage="download"
+LABEL description="Téléchargement des données Ariel depuis l'API Kaggle"
+LABEL maintainer="ariel-challenge-2025"
+
+# --- Variables d'environnement système
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    # Désactive la génération de fichiers .pyc — inutile en container
+    PYTHONUNBUFFERED=1 \
+    # Force stdout/stderr non-bufferisés — les logs apparaissent immédiatement
+    PIP_NO_CACHE_DIR=1 \
+    # Désactive le cache pip — réduit la taille de l'image
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# --- Répertoire de travail dans le container
+WORKDIR /app
+
+# --- Dépendances système minimales
+# curl : téléchargements HTTP
+# ca-certificates : certificats SSL pour HTTPS
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+    # Nettoyage des listes apt pour réduire la taille de l'image
+
+# --- Dépendances Python pour le téléchargement uniquement
+# On copie requirements AVANT le code source pour exploiter le cache Docker :
+# si requirements ne change pas, cette couche est réutilisée même si le code change
+COPY requirements/download.txt requirements/download.txt
+RUN pip install -r requirements/download.txt
+
+# --- Code source (uniquement le module de téléchargement)
+COPY src/data/download.py src/data/download.py
+
+# --- Volumes montés au runtime par docker-compose
+# /app/data/raw  : destination des données téléchargées
+# /app/credentials : contient kaggle.json (monté depuis le host, jamais dans l'image)
+VOLUME ["/app/data/raw", "/app/credentials"]
+
+# --- Point d'entrée : python avec les arguments passés par docker-compose / DVC
+# CMD définit les arguments par défaut — remplaçables via `docker run ... <args>`
+ENTRYPOINT ["python", "src/data/download.py"]
+CMD ["--mode", "all"]

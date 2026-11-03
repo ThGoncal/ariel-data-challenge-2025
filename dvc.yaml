@@ -1,30 +1,53 @@
+# dvc.yaml — Ariel Data Challenge 2025
+# Le dataset brut (~264 Go) n'est PAS versionné : il est téléchargé par batchs puis supprimé.
+# On versionne ce qui est coûteux à reconstruire et utile : les SPECTRES extraits (≈ 40 h de
+# téléchargement + calcul pour 1100 planètes), l'état de la boucle (validation fixe, seed), les
+# métriques et l'historique des scores. Les modèles sont versionnés dans MLflow.
+#
+#   dvc repro            # reprend la boucle là où elle s'est arrêtée (outs persistants)
+#   dvc metrics show     # meilleur score GLL lissé, n_train, raison d'arrêt
+#   dvc plots show       # courbe score vs nombre de planètes
+#   dvc push             # envoie spectres + état vers DagsHub
+#   dvc params diff      # compare les paramètres entre deux commits
+
 stages:
-  prepare:
-    cmd: python src/features/build_features.py
+  meta:
+    cmd: python -m src.data.collect --mode meta
     deps:
-      - src/features/build_features.py
-      - data/raw
-    params:
-      - data
+      - src/data/collect.py
     outs:
-      - data/processed
+      - data/raw/adc_info.csv
+      - data/raw/axis_info.parquet
+      - data/raw/sample_submission.csv
+      - data/raw/test_star_info.csv
+      - data/raw/train.csv
+      - data/raw/train_star_info.csv
+      - data/raw/wavelengths.csv
 
-  train:
-    cmd: python src/models/train.py
+  incremental:
+    cmd: python -m src.pipelines.incremental --params params.yaml --mlflow
     deps:
-      - src/models/train.py
-      - data/processed
+      - src/pipelines/incremental.py
+      - src/signal_processing
+      - src/ml
+      - data/raw/adc_info.csv
+      - data/raw/axis_info.parquet
+      - data/raw/wavelengths.csv
+      - data/raw/train.csv
+      - data/raw/train_star_info.csv
     params:
-      - train
-      - mlflow
+      - signal.binning_airs
+      - signal.binning_fgs1
+      - incremental
     outs:
-      - artifacts/model
-
-  evaluate:
-    cmd: python src/models/evaluate.py
-    deps:
-      - src/models/evaluate.py
-      - artifacts/model
-      - data/processed
+      # persist: DVC ne supprime PAS le dossier avant d'exécuter le stage -> la reprise fonctionne
+      - data/processed/incremental:
+          persist: true
     metrics:
-      - metrics/scores.json
+      - reports/incremental/metrics.json:
+          cache: false
+    plots:
+      - reports/incremental/history.csv:
+          x: n_train
+          y: smoothed
+          cache: false
