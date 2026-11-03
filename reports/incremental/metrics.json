@@ -1,0 +1,8 @@
+{
+  "best_smoothed_gll": 0.15980283591712774,
+  "last_gll": 0.16744809613018097,
+  "n_train": 30,
+  "batches_done": 3,
+  "stopped": true,
+  "stop_reason": "max_batches atteint"
+}
