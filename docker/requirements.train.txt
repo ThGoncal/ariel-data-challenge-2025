@@ -1,0 +1,12 @@
+# requirements/train.txt
+# Dépendances pour l'entraînement (PyTorch fourni par l'image de base)
+# Taille image estimée : ~9 Go avec CUDA (image pytorch/pytorch de base)
+
+numpy>=1.26.0
+pandas>=2.1.0
+scikit-learn>=1.4.0
+mlflow>=2.10.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+matplotlib>=3.8.0

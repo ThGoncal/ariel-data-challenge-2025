@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 NUMBA_CACHE_DIR=/app/.numba_cache
+WORKDIR /app
+COPY docker/requirements.incremental.txt /tmp/req.txt
+RUN pip install -r /tmp/req.txt
+COPY src/ src/
+COPY scripts/ scripts/
+ENTRYPOINT ["python", "-m", "src.pipelines.incremental"]
+CMD ["--batch-size", "20", "--val-size", "40", "--mlflow"]

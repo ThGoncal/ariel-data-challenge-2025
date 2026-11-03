@@ -1,0 +1,12 @@
+numpy
+pandas
+pyarrow
+scipy
+numba
+joblib
+tqdm
+pyyaml
+python-dotenv
+kaggle
+scikit-learn
+mlflow
