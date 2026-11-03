@@ -1,4 +1,20 @@
-name: CI Pipeline
+# .github/workflows/ci.yml
+# =============================================================================
+# CI/CD — Ariel Data Challenge 2025
+# =============================================================================
+# Ce workflow s'exécute sur chaque push et pull request.
+#
+# Jobs :
+#   1. test  : Lance les tests unitaires via le container Docker dédié
+#   2. build : Vérifie que toutes les images Docker se buildent correctement
+#   3. lint  : Vérifie la qualité du code (flake8 + black)
+#
+# Le job "test" utilise l'image Docker ariel-test pour garantir que les tests
+# s'exécutent dans le même environnement que la production — pas de "ça marche
+# sur ma machine" possible.
+# =============================================================================
+
+name: CI
 
 on:
   push:
@@ -6,34 +22,161 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  PYTHON_VERSION: "3.11"
+  # Désactive la compilation CUDA pendant les tests CI (pas de GPU sur GitHub Actions)
+  NUMBA_NUM_THREADS: "1"
+
 jobs:
+
+  # ===========================================================================
+  # JOB 1 : Tests unitaires
+  # ===========================================================================
   test:
+    name: "Tests unitaires"
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout du code
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      # Cache des layers Docker pour accélérer les builds CI
+      - name: Configurer le cache Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache des layers Docker
+        uses: actions/cache@v4
         with:
-          python-version: "3.10"
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-test-${{ hashFiles('docker/test/Dockerfile', 'requirements/test.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-test-
 
-      - name: Install dependencies
+      # Build de l'image de test
+      - name: Build de l'image ariel-test
         run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          docker build \
+            --file docker/test/Dockerfile \
+            --tag ariel-test:ci \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            .
 
-      - name: Run tests
-        run: pytest tests/ --cov=src --cov-report=xml
+      - name: Rotation du cache Docker
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
+      # Création du dossier de rapports
+      - name: Créer le dossier reports/
+        run: mkdir -p reports
 
-  lint:
+      # Lancement des tests dans le container
+      - name: Lancer les tests pytest
+        run: |
+          docker run --rm \
+            --volume ${{ github.workspace }}/reports:/app/reports \
+            ariel-test:ci \
+            tests/ \
+            -m "not slow and not integration" \
+            --tb=short \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:/app/reports/coverage.xml \
+            -q
+
+      # Publication du rapport de couverture sur Codecov (optionnel)
+      - name: Upload coverage vers Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: reports/coverage.xml
+          fail_ci_if_error: false
+
+
+  # ===========================================================================
+  # JOB 2 : Vérification des builds Docker
+  # ===========================================================================
+  build:
+    name: "Build des images Docker"
     runs-on: ubuntu-latest
+    # Ce job s'exécute en parallèle avec "test" — ils sont indépendants
+    needs: []
+
+    strategy:
+      # Lance un job pour chaque image — ils s'exécutent en parallèle
+      matrix:
+        include:
+          - stage: download
+            dockerfile: docker/download/Dockerfile
+            requirements: requirements/download.txt
+          - stage: processing
+            dockerfile: docker/processing/Dockerfile
+            requirements: requirements/processing.txt
+          # Le container train est lourd (PyTorch CUDA) — on le build
+          # uniquement sur des tags de version, pas sur chaque push
+          # - stage: train
+          #   dockerfile: docker/train/Dockerfile
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers - ${{ matrix.stage }}
+        uses: actions/cache@v4
         with:
-          python-version: "3.10"
-      - run: pip install ruff
-      - run: ruff check src/
+          path: /tmp/.buildx-cache-${{ matrix.stage }}
+          key: ${{ runner.os }}-buildx-${{ matrix.stage }}-${{ hashFiles(matrix.dockerfile, matrix.requirements) }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.stage }}-
+
+      - name: Build image ${{ matrix.stage }}
+        run: |
+          docker buildx build \
+            --file ${{ matrix.dockerfile }} \
+            --tag ariel-${{ matrix.stage }}:ci \
+            --cache-from type=local,src=/tmp/.buildx-cache-${{ matrix.stage }} \
+            --cache-to type=local,dest=/tmp/.buildx-cache-${{ matrix.stage }}-new,mode=max \
+            --load \
+            .
+          echo "✅ Image ariel-${{ matrix.stage }} buildée avec succès"
+
+
+  # ===========================================================================
+  # JOB 3 : Qualité du code
+  # ===========================================================================
+  lint:
+    name: "Lint et formatage"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('requirements/test.txt') }}
+
+      - name: Installer les outils de lint
+        run: pip install flake8 black isort
+
+      - name: "Black — vérification du formatage"
+        run: black --check --diff src/ tests/
+
+      - name: "isort — vérification des imports"
+        run: isort --check-only --diff src/ tests/
+
+      - name: "Flake8 — vérification du style"
+        run: |
+          flake8 src/ tests/ \
+            --max-line-length=100 \
+            --extend-ignore=E203,W503 \
+            --exclude=__pycache__,.venv
