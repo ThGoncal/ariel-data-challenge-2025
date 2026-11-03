@@ -23,7 +23,7 @@ data/external/*
 !data/**/.gitkeep
 
 # Models
-models/
+/models/
 *.pkl
 *.joblib
 *.h5
@@ -59,3 +59,9 @@ Thumbs.db
 
 *.tar
 *.tar.gz
+
+# Caches et sorties locales
+.numba_cache/
+mlruns_server/
+.pytest_cache/
+.coverage
