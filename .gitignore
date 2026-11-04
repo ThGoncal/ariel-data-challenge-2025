@@ -65,3 +65,4 @@ Thumbs.db
 mlruns_server/
 .pytest_cache/
 .coverage
+mlflow.db
