@@ -73,9 +73,14 @@ def process_one_planet(
     cut_sup: int,
     binning_airs: int = DEFAULT_BINNING_AIRS,
     binning_fgs1: int = DEFAULT_BINNING_FGS1,
+    _cubes_out: dict | None = None,
 ) -> dict | None:
     """
     Traite une planète complète et retourne son vecteur de features.
+
+    `_cubes_out` (diagnostic) : si un dict est fourni, il reçoit les cubes calibrés et binnés
+    ("airs" : (n_time, 32, n_wl), "fgs1" : (n_time, 32, 32)) avant l'extraction de Rp.
+    Le résultat retourné est identique avec ou sans ce paramètre.
 
     Cette fonction est conçue pour être appelée en parallèle par joblib.
     Elle est autonome : elle ne partage pas de mémoire avec les autres workers.
@@ -217,6 +222,9 @@ def process_one_planet(
 
         # --- 8. Binning
         signal_cds_fgs1 = bin_time(signal_cds_fgs1, binning_fgs1)
+
+        if _cubes_out is not None:
+            _cubes_out["airs"], _cubes_out["fgs1"] = signal_cds_airs, signal_cds_fgs1
 
         # --- 9. Extraction Rp (photométrique, fit super-gaussienne)
         Rp_fgs1 = calcul_Rp_fgs1(signal_cds_fgs1)     # (1,)
