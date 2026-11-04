@@ -1,8 +1,8 @@
 {
-  "best_smoothed_gll": 0.15980283591712774,
-  "last_gll": 0.16744809613018097,
-  "n_train": 30,
-  "batches_done": 3,
+  "best_smoothed_gll": 0.18742277492703482,
+  "last_gll": 0.1799531707588227,
+  "n_train": 140,
+  "batches_done": 14,
   "stopped": true,
-  "stop_reason": "max_batches atteint"
+  "stop_reason": "score liss\u00e9 sans am\u00e9lioration > 0.001 pendant 3 batchs"
 }

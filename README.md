@@ -28,8 +28,10 @@ Code : `src/pipelines/incremental.py` ; 10 tests dans `tests/unit/test_increment
 
 ![Score GLL vs nombre de planètes](docs/score_curve.png)
 
-<!-- À remplir après le run : score final, nombre de planètes à l'arrêt, gain de temps vs 1100 planètes. -->
-Courbe générée par `scripts/plot_score_curve.py` depuis `state.json` ; suivi aussi dans MLflow.
+- Arrêt automatique après **14 batchs (140 planètes d'entraînement, ~13 % des 1100)** : le score lissé n'a pas gagné plus de 0,001 pendant 3 batchs.
+- Score GLL sur validation fixe (20 planètes) : **0,15 avec 20 planètes → 0,18–0,19 dès 90 planètes** ; meilleur score lissé **0,187** (110 planètes).
+- Coût : ~4 min 15 par planète (2 min 45 de téléchargement + 1 min 30 de traitement), soit ~10 h pour 140 planètes contre ~78 h pour les 1100.
+- Lecture : le plateau montre que la limite n'est plus la quantité de données mais le modèle (Ridge, σ constant) et la qualité des spectres extraits (bruit, rampe dans le bleu). La validation est petite : les variations de ±0,01 entre batchs sont dans le bruit statistique.
 
 ## Limites connues (honnêteté sur l'état du projet)
 
