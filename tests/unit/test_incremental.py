@@ -167,3 +167,14 @@ def test_make_model_saver_ecrit_et_relit(tmp_path):
     assert joblib.load(tmp_path / "champ" / "bundle.joblib") == {"a": 1}
     meta = json.loads((tmp_path / "champ" / "meta.json").read_text())
     assert meta["n_train"] == 30 and "git_commit" in meta and "spectra_sha256" in meta
+
+
+def test_migration_ancien_etat_max_batches(tmp_path):
+    r, _ = make_runner(tmp_path, [0.1, 0.2, 0.3, 0.4, 0.5], max_batches=1)
+    r.run()
+    r.state.stopped, r.state.stop_reason = True, "max_batches atteint"   # ancien format persisté
+    r.state.save(r.state_path)
+    r2, _ = make_runner(tmp_path, [0.2, 0.3, 0.4], max_batches=3)
+    assert not r2.state.stopped
+    r2.run()
+    assert r2.state.batches_done == 3

@@ -129,6 +129,9 @@ class IncrementalRunner:
         self.dir = Path(cfg.work_dir)
         self.state_path = self.dir / "state.json"
         self.state = IncrementalState.load(self.state_path)
+        # migration : d'anciens états persistaient « max_batches atteint » comme un arrêt définitif
+        if self.state.stopped and self.state.stop_reason.startswith("max_batches"):
+            self.state.stopped, self.state.stop_reason = False, ""
         if not self.state.order_train:                      # première exécution
             self.state.val_ids, self.state.order_train = split_ids(all_ids, cfg.val_size, cfg.seed)
         if self.state.batch_size is None:
@@ -317,18 +320,6 @@ def make_model_saver(cfg: IncrementalConfig, models_dir: str = "models/champion"
     return save
 
 
-def register_champion(models_dir: str = "models/champion", name: str = "ariel-champion") -> None:
-    """Enregistre le dernier modèle record dans le Model Registry MLflow (si le backend le permet)."""
-    try:
-        import mlflow
-        run = mlflow.active_run()
-        if run is None:
-            return
-        mlflow.register_model(f"runs:/{run.info.run_id}/models", name)
-    except Exception as e:                 # un backend fichier n'a pas de registry : non bloquant
-        logger.warning("Model Registry indisponible (%s) — le modèle reste dans models/champion/", e)
-
-
 def write_reports(state: IncrementalState, work_dir: str) -> None:
     """metrics.json (dvc metrics) + history.csv (dvc plots)."""
     d = Path(work_dir)
@@ -390,8 +381,6 @@ def main() -> None:
         st = runner.run()
     finally:
         write_reports(runner.state, "reports/incremental")
-    if a.mlflow:
-        register_champion()
     logger.info("Arrêt : %s | meilleur score lissé = %s", st.stop_reason or "budget", st.best_smoothed)
 
 

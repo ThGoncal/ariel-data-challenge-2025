@@ -66,8 +66,8 @@ stages:
       nfiles: 0
     - path: src/pipelines/incremental.py
       hash: md5
-      md5: 6ded7bdf628c0a9406d6ae24cccc2ee5
-      size: 18166
+      md5: 6bf4cc814336e0f69504e7ee425aa454
+      size: 17790
     - path: src/signal_processing
       hash: md5
       md5: d751713988987e9331980363e24189ce.dir
@@ -89,14 +89,14 @@ stages:
     outs:
     - path: data/processed/incremental
       hash: md5
-      md5: b66ff7bf2b48c1b584a0b3c902ac4b35.dir
-      size: 617331
-      nfiles: 5
+      md5: 558728cac81cac15d5c97df754094078.dir
+      size: 1941369
+      nfiles: 16
     - path: reports/incremental/history.csv
       hash: md5
-      md5: 4e73a9642752fd2cee602d6d20b2356c
-      size: 124
+      md5: 0fd3287b8f24c32e5d6e1c06922230e2
+      size: 668
     - path: reports/incremental/metrics.json
       hash: md5
-      md5: 27a3aedb2c247f876340cd6067b3ad2d
-      size: 178
+      md5: a44a58fbf731436de1e59225726b2b19
+      size: 224
