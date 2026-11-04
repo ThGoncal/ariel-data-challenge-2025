@@ -22,7 +22,7 @@ tirage mélangé (seed) ─► validation FIXE (traitée une fois)
 
 Choix de conception : validation fixe (scores comparables), ordre mélangé, un fichier par batch
 (rejouer un batch ne duplique rien), état JSON (reprise après interruption), arrêt sur score lissé.
-Code : `src/pipelines/incremental.py` ; 10 tests dans `tests/unit/test_incremental.py`.
+Code : `src/pipelines/incremental.py` ; 17 tests dans `tests/unit/test_incremental.py`.
 
 ## Résultat
 
@@ -52,20 +52,20 @@ in/out transit. Numba (`@njit`, `prange`) + joblib. Code dans `src/signal_proces
 
 | Outil | Rôle |
 |---|---|
-| uv, pytest | environnement, tests (~100 tests unitaires) |
+| uv, pytest | environnement, tests unitaires |
 | Kaggle API | téléchargement par planète |
 | MLflow | suivi du score GLL en fonction du nombre de planètes |
 | Airflow | un run = un batch, auto-déclenchement jusqu'à l'arrêt |
 | Docker / compose | profils `mlflow`, `incremental`, `airflow`, `test` |
-| DVC / DagsHub | versionnement des 7 fichiers racine et du `train.csv` enrichi |
+| DVC / DagsHub | versionnement des 7 fichiers racine et des spectres extraits (`data/processed/incremental`) ; modèles et scores dans MLflow |
 | GitHub Actions | CI (`.github/workflows/ci.yml`) |
 
 ## Démarrage
 
 ```bash
-uv sync && uv add -r requirements.txt
+uv sync
 uv run python -m pytest tests/unit -q -m "not slow"
-uv run python -m src.pipelines.incremental --batch-size 20 --val-size 40 --mlflow
+uv run python -m src.pipelines.incremental --mlflow    # paramètres dans params.yaml
 uv run python scripts/plot_score_curve.py
 ```
 Identifiants Kaggle : `~/.kaggle/kaggle.json` ou variables `KAGGLE_USERNAME` / `KAGGLE_KEY` (`.env`, non versionné).
