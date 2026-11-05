@@ -19,6 +19,8 @@ build/
 # Data (versioned by DVC)
 data/raw/*
 data/processed/*
+!data/processed/*.dvc
+!data/processed/.gitignore
 data/external/*
 !data/**/.gitkeep
 
@@ -66,3 +68,4 @@ mlruns_server/
 .pytest_cache/
 .coverage
 mlflow.db
+logs/
