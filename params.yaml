@@ -68,3 +68,20 @@ incremental:
   smooth_window: 3
   min_train_for_fit: 20
   seed: 42
+
+# =============================================================================
+# EXTRACTION DU SIGNAL v0.2.0 (src/signal_processing/spectra.py)
+# =============================================================================
+extraction:
+  method: adaptee            # fixe | adaptee | adaptee_detrend | gabarit
+  deg: 1                     # degré de la ligne de base (méthodes detrend / gabarit)
+  edge_channels: 10          # premiers canaux AIRS remplacés par la moyenne des 10 suivants
+
+# =============================================================================
+# MODÈLE CHAMPION v0.2.0 (src/models/champion.py) : Ridge sur [Rp**power, astro], σ constant
+# =============================================================================
+champion:
+  alpha: 10.0
+  power: 2                   # 2 = profondeur de transit
+  cv_folds: 5
+  cv_repeats: 3
