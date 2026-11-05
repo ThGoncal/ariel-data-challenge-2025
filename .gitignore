@@ -69,3 +69,4 @@ mlruns_server/
 .coverage
 mlflow.db
 logs/
+submissions/
