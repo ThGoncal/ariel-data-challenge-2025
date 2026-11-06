@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from spectra_factory import make_world
-from src.pipelines.build_spectra import build_layout, curves_digest, export_split, load_split
+from src.pipelines.build_spectra import (build_layout, curves_digest, export_split, extraction_level, load_split,
+                                         quality_filter)
 from src.signal_processing.spectra import ExtractionParams, depth_to_rp, extract_spectrum
 
 P = ExtractionParams("adaptee", 1, 10)
@@ -66,3 +67,71 @@ def test_empreinte_des_courbes_change_si_une_courbe_change(tmp_path):
     z["airs"] = z["airs"] * 1.001
     np.savez(curves / "1000.npz", **z)
     assert curves_digest(curves, ids) != d1
+
+
+def test_extension_du_decoupage_garde_validation_et_ordre(tmp_path):
+    from src.pipelines.build_spectra import extend_split
+    split, curves, raw = make_world(tmp_path, skip_curves=(1005,))
+    old = {"val": split["val"], "train": split["train"][:10], "batch_size": 10, "source": "v1"}
+    labels = [1000 + i for i in range(30)] + [9999]                           # 9999 : pas de courbes
+    new = extend_split(old, curves, labels)
+    assert new["val"] == old["val"] and new["train"][:10] == old["train"]       # début inchangé
+    assert new["train"][10:] == [p for p in split["train"][10:] if p != 1005]   # ajout dans l'ordre des labels, sans doublon
+    assert 1005 not in new["train"] and 9999 not in new["train"]                # sans courbes : ignorées
+    assert new["n_added"] == len(new["train"]) - 10 and not set(new["val"]) & set(new["train"])
+    assert extend_split(new, curves, labels)["n_added"] == 0                    # idempotent
+
+
+def test_extension_refuse_d_ecraser_la_source(tmp_path, monkeypatch):
+    import sys
+
+    from src.pipelines import build_spectra
+    split, curves, raw = make_world(tmp_path)
+    src = tmp_path / "split_v1.json"
+    src.write_text(json.dumps(split))
+    monkeypatch.setattr(sys, "argv", ["x", "--extend-split", str(src), "--split", str(src), "--curves", str(curves),
+                                      "--raw", str(raw)])
+    with pytest.raises(SystemExit, match="NOUVEAU"):
+        build_spectra.main()
+    out = tmp_path / "split_v2.json"
+    monkeypatch.setattr(sys, "argv", ["x", "--extend-split", str(src), "--split", str(out), "--curves", str(curves),
+                                      "--raw", str(raw)])
+    build_spectra.main()
+    assert json.loads(out.read_text())["val"] == split["val"] and json.loads(src.read_text()) == split
+
+
+def _monde_avec_labels_faux(tmp_path, bad_train, bad_val=None):
+    split, curves, raw = make_world(tmp_path)
+    lab = pd.read_csv(raw / "train.csv")
+    cols = [f"wl_{i}" for i in range(1, 284)]
+    for pid, k in [(bad_train, 4.0)] + ([(bad_val, 0.1)] if bad_val else []):
+        lab.loc[lab.planet_id == pid, cols] *= 1 / k             # label k fois plus petit => niveau = k
+    lab.to_csv(raw / "train.csv", index=False)
+    return split, curves, raw
+
+
+def test_niveau_d_extraction_proche_de_un_sur_donnees_saines(tmp_path):
+    split, curves, raw = make_world(tmp_path)
+    df = pd.read_csv(build_layout(split, curves, raw, tmp_path / "o", P) and tmp_path / "o" / "val.csv")
+    lev = extraction_level(df)
+    assert ((lev > 0.8) & (lev < 1.3)).all()
+
+
+def test_filtre_qualite_exclut_de_l_entrainement_mais_pas_de_la_validation(tmp_path):
+    bad_tr, bad_va = 1020, 1001
+    split, curves, raw = _monde_avec_labels_faux(tmp_path, bad_tr, bad_va)
+    out = tmp_path / "o"
+    m0 = build_layout(split, curves, raw, tmp_path / "o0", P)
+    m = build_layout(split, curves, raw, out, P, level_range=(0.5, 2.0))
+    assert set(m["excluded_train"]) == {bad_tr} and m["excluded_train"][bad_tr] > 3
+    assert m["n_train"] == m0["n_train"] - 1
+    assert m["n_val"] == m0["n_val"]                               # validation intacte
+    assert set(m["val_out_of_range"]) == {bad_va}                  # mais signalée
+    ids = pd.concat([pd.read_csv(f) for f in (out / "batches").glob("batch_*.csv")])["planet_id"]
+    assert bad_tr not in set(ids) and bad_va in set(pd.read_csv(out / "val.csv")["planet_id"])
+    assert m0["excluded_train"] == {} and m0["level_range"] is None   # sans option : comportement inchangé
+
+
+def test_filtre_qualite_cas_limites():
+    df = pd.DataFrame({"planet_id": [], **{f"Rp_{i}": [] for i in range(1, 284)}})
+    assert quality_filter(df, (0.5, 2.0))[1] == {}

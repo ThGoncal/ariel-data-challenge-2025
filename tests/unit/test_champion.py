@@ -77,3 +77,47 @@ def test_enregistrement_mlflow_et_rechargement(layout, tmp_path):
     out = loaded.predict(val)
     assert out.shape == (len(val), 567) and list(out["planet_id"]) == list(val["planet_id"])
     assert (out.filter(like="_std") > 0).all().all()
+
+
+def test_sigma_constant_par_defaut_et_compatibilite_des_anciens_modeles(layout):
+    train, val = load_layout(layout)
+    b = fit_champion(train)
+    assert b["sigma_mode"] == "const" and b["sigma_fit"] is None
+    p = predict_champion(b, val)
+    assert np.allclose(p.sigma, p.sigma[0])                                     # identique pour toutes les planètes
+    old = {k: v for k, v in b.items() if k not in ("sigma_mode", "sigma_fit")}   # bundle écrit par la v0.2.0
+    assert np.array_equal(predict_champion(old, val).sigma, p.sigma)
+
+
+def test_sigma_proportionnel_a_la_profondeur(layout):
+    from src.models.champion import depth_of
+    train, val = load_layout(layout)
+    b = fit_champion(train, sigma="depth", gamma=1.0)
+    p = predict_champion(b, val)
+    d = depth_of(feature_matrix(val, 2)[0], 2)
+    i, j = int(np.argmin(d)), int(np.argmax(d))
+    assert d[j] > d[i] and np.allclose(p.sigma[j] / p.sigma[i], d[j] / d[i])   # γ=1 : σ ∝ profondeur
+    assert (p.sigma > 0).all() and b["sigma_fit"]["gamma"] == 1.0
+    g0 = predict_champion(fit_champion(train, sigma="depth", gamma=0.0), val)   # γ=0 : redonne un σ constant
+    assert np.allclose(g0.sigma, g0.sigma[0])
+    with pytest.raises(ValueError):
+        fit_champion(train, sigma="magique")
+
+
+def test_sigma_profondeur_identique_a_l_etude_comparative(layout):
+    from scripts.compare_sigma import fit_depth_sigma as ref_fit
+    from scripts.compare_sigma import sigma_matrix as ref_sigma
+    from src.models.champion import depth_sigma, fit_depth_sigma
+    rng = np.random.default_rng(0)
+    resid, d = rng.normal(0, 1e-3, (40, 283)), rng.uniform(0.004, 0.04, 40)
+    for gamma in (None, 0.0, 1.0):
+        a, b = fit_depth_sigma(resid, d, gamma), ref_fit(resid, d, gamma)
+        assert np.isclose(a["a"], b["a"]) and np.isclose(a["gamma"], b["gamma"]) and np.allclose(a["q"], b["q"])
+        assert np.allclose(depth_sigma(a, d[:5]), ref_sigma(b, d[:5]))
+
+
+def test_run_avec_sigma_profondeur_ecrit_la_meta(layout, tmp_path):
+    params = {**PARAMS, "champion": {**PARAMS["champion"], "sigma": "depth"}}
+    m = run(params, layout, tmp_path / "models", tmp_path / "reports")
+    meta = pd.read_json(tmp_path / "models" / "meta.json", typ="series")
+    assert meta["sigma"] == "depth" and 0.0 <= meta["gamma"] <= 2.0 and np.isfinite(m["gll_cv_mean"])

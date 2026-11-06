@@ -45,6 +45,16 @@ def export_split(incremental_root: Path, batch_size: int = 10) -> dict:
     return {"val": val, "train": train, "batch_size": batch_size, "source": "incremental v0.1.0"}
 
 
+def extend_split(split: dict, curves_dir: Path, candidates: list[int]) -> dict:
+    """Nouveau découpage : MÊME validation, MÊME début d'entraînement, puis les planètes qui ont des courbes
+    (dans l'ordre de `candidates`) et ne figurent pas déjà dans le découpage."""
+    known = set(split["val"]) | set(split["train"])
+    added = [int(p) for p in candidates if int(p) not in known and (Path(curves_dir) / f"{int(p)}.npz").exists()]
+    added = list(dict.fromkeys(added))
+    return {"val": list(split["val"]), "train": list(split["train"]) + added, "batch_size": split.get("batch_size", 10),
+            "source": f"{split.get('source', 'split')} + {len(added)} planètes avec courbes", "n_added": len(added)}
+
+
 def load_split(path: Path) -> dict:
     s = json.loads(Path(path).read_text())
     if set(s["val"]) & set(s["train"]):
@@ -83,8 +93,28 @@ def build_rows(ids: list[int], curves_dir: Path, labels: pd.DataFrame, stars: pd
     return df.merge(labels, on="planet_id").merge(stars, on="planet_id"), missing
 
 
+def extraction_level(df: pd.DataFrame) -> pd.Series:
+    """Niveau d'extraction par planète = médiane(Rp² / label). ~1 si le spectre extrait est cohérent avec le label
+    (plage normale observée : 0,8 à 1,25). Utilise les LABELS : réservé au contrôle qualité de l'entraînement."""
+    rp2 = df[RP_COLS].to_numpy(float) ** 2
+    y = df[[c.replace("Rp_", "wl_") for c in RP_COLS]].to_numpy(float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(y > 0, rp2 / y, np.nan)
+    return pd.Series(np.nanmedian(ratio, axis=1), index=df["planet_id"].to_numpy())
+
+
+def quality_filter(df: pd.DataFrame, level_range: tuple[float, float]) -> tuple[pd.DataFrame, dict[int, float]]:
+    """Écarte les planètes dont le niveau d'extraction sort de [lo, hi] (NaN compris) ; retourne les écartées."""
+    if not len(df):
+        return df, {}
+    lo, hi = level_range
+    lev = extraction_level(df)
+    ok = ((lev >= lo) & (lev <= hi)).to_numpy()
+    return df[ok], {int(k): round(float(v), 4) for k, v in lev[~ok].items()}
+
+
 def build_layout(split: dict, curves_dir: Path, raw_dir: Path, out_dir: Path, p: ExtractionParams,
-                 strict: bool = False) -> dict:
+                 strict: bool = False, level_range: tuple[float, float] | None = None) -> dict:
     labels = pd.read_csv(Path(raw_dir) / "train.csv")
     stars = pd.read_csv(Path(raw_dir) / "train_star_info.csv")
     out = Path(out_dir)
@@ -94,10 +124,13 @@ def build_layout(split: dict, curves_dir: Path, raw_dir: Path, out_dir: Path, p:
 
     val_df, missing_val = build_rows(split["val"], curves_dir, labels, stars, p)
     bs = int(split.get("batch_size", 10))
-    n_written, missing_train = 0, []
+    n_written, missing_train, excluded = 0, [], {}
     for k in range(0, len(split["train"]), bs):
         df, miss = build_rows(split["train"][k: k + bs], curves_dir, labels, stars, p)
         missing_train += miss
+        if level_range is not None:
+            df, bad = quality_filter(df, level_range)
+            excluded.update(bad)
         if len(df):
             df.to_csv(out / "batches" / f"batch_{k // bs:03d}.csv", index=False)
             n_written += len(df)
@@ -109,7 +142,13 @@ def build_layout(split: dict, curves_dir: Path, raw_dir: Path, out_dir: Path, p:
     if missing:
         logger.warning("%d planètes sans courbes, ignorées : %s", len(missing), missing)
     manifest = {"n_val": len(val_df), "n_train": n_written, "missing": missing, "extraction": p.as_dict(),
-                "curves_sha256": curves_digest(curves_dir, split["val"] + split["train"])}
+                "curves_sha256": curves_digest(curves_dir, split["val"] + split["train"]),
+                "level_range": list(level_range) if level_range else None,
+                "excluded_train": excluded}                # {planet_id: niveau d'extraction}, tracé pour audit
+    if level_range is not None:                            # la validation n'est JAMAIS filtrée : on la signale seulement
+        manifest["val_out_of_range"] = quality_filter(val_df, level_range)[1]
+    if excluded:
+        logger.warning("%d planètes d'entraînement écartées (niveau hors %s) : %s", len(excluded), level_range, excluded)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
 
@@ -122,11 +161,25 @@ def main() -> None:
     ap.add_argument("--raw", default=str(RAW))
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--strict", action="store_true", help="échoue si une planète du découpage n'a pas de courbes")
+    ap.add_argument("--level-range", nargs=2, type=float, metavar=("MIN", "MAX"), default=None,
+                    help="écarte de l'ENTRAÎNEMENT les planètes dont médiane(Rp²/label) sort de [MIN, MAX] (ex. 0.5 2)")
+    ap.add_argument("--extend-split", metavar="DECOUPAGE_SOURCE", default=None,
+                    help="écrit dans --split un découpage étendu aux planètes qui ont des courbes (validation inchangée)")
     ap.add_argument("--export-split", metavar="INCREMENTAL_ROOT", default=None,
                     help="écrit le découpage figé depuis la boucle incrémentale puis s'arrête")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+    if a.extend_split:
+        if Path(a.split).resolve() == Path(a.extend_split).resolve():
+            raise SystemExit("--split doit être un NOUVEAU fichier (ne jamais écraser le découpage source).")
+        labels = pd.read_csv(Path(a.raw) / "train.csv", usecols=["planet_id"])["planet_id"].astype(int).tolist()
+        new = extend_split(load_split(Path(a.extend_split)), Path(a.curves), labels)
+        Path(a.split).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.split).write_text(json.dumps(new))
+        print(f"découpage étendu écrit : {a.split} ({len(new['val'])} validation, {len(new['train'])} entraînement, "
+              f"dont {new['n_added']} ajoutées)")
+        return
     if a.export_split:
         split = export_split(Path(a.export_split))
         Path(a.split).parent.mkdir(parents=True, exist_ok=True)
@@ -137,9 +190,12 @@ def main() -> None:
     import yaml
     params = yaml.safe_load(Path(a.params).read_text())
     p = ExtractionParams.from_params(params)
-    m = build_layout(load_split(Path(a.split)), Path(a.curves), Path(a.raw), Path(a.out), p, strict=a.strict)
+    m = build_layout(load_split(Path(a.split)), Path(a.curves), Path(a.raw), Path(a.out), p, strict=a.strict,
+                     level_range=tuple(a.level_range) if a.level_range else None)
     print(f"spectres écrits dans {a.out} : {m['n_val']} validation, {m['n_train']} entraînement, "
-          f"{len(m['missing'])} planètes sans courbes | extraction {p.as_dict()} | courbes {m['curves_sha256']}")
+          f"{len(m['missing'])} planètes sans courbes | extraction {p.as_dict()} | courbes {m['curves_sha256']}"
+          + (f" | filtre qualité {m['level_range']} : {len(m['excluded_train'])} écartées, "
+             f"{len(m['val_out_of_range'])} en validation hors plage (non filtrées)" if m["level_range"] else ""))
 
 
 if __name__ == "__main__":
