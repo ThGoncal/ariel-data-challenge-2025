@@ -1,4 +1,4 @@
-.PHONY: setup train test lint docker-build k8s-deploy drift-report dvc-init
+.PHONY: setup train test lint docker-build drift-report dvc-init
 
 setup:
 	pip install -r requirements.txt -r requirements-dev.txt
@@ -22,11 +22,6 @@ lint:
 docker-build:
 	docker build -f docker/Dockerfile.train -t mlops-train:latest .
 	docker build -f docker/Dockerfile.serve -t mlops-serve:latest .
-
-k8s-deploy:
-	kubectl apply -f kubernetes/configmaps/
-	kubectl apply -f kubernetes/deployments/
-	kubectl apply -f kubernetes/services/
 
 drift-report:
 	python monitoring/evidently/drift_report.py

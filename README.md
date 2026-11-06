@@ -124,10 +124,29 @@ tableaux sont dans `reports/`.
 Le dataset pèse **~264 Go** (1100 planètes × ~240 Mo) : il ne tient pas sur un poste de travail, et à ~1,5 Mo/s
 le télécharger entièrement prendrait environ **40 h**. Le projet a donc été construit autour de cette contrainte :
 
+```mermaid
+flowchart LR
+    RAW["Brut<br/>~240 Mo / planète"] --> SIG["Traitement<br/>du signal"]
+    SIG --> CUR[("Courbes<br/>transit_curves")]
+    CUR --> EXT["Extraction<br/>du spectre"]
+    EXT --> FIL["Filtre<br/>de qualité"]
+    FIL --> SPE[("Spectres<br/>spectra_v2")]
+    SPE --> TRN["Entraînement<br/>du Ridge"]
+    TRN --> MOD[("Modèle<br/>champion_v2")]
+    MOD --> INF["Inférence<br/>predict_test"]
+    subgraph D1 ["DVC : spectra"]
+        EXT
+        FIL
+    end
+    subgraph D2 ["DVC : train_champion"]
+        TRN
+    end
 ```
-brut (par planète) ─► traitement du signal (Numba) ─► courbes de lumière sauvegardées (DVC, quelques Mo)
-courbes ─► extraction du spectre (params.yaml) ─► spectres (DVC) ─► modèle champion ─► MLflow
-```
+
+Les cylindres sont les données et modèles versionnés par DVC (`data/processed/transit_curves`, `data/processed/spectra_v2`,
+`models/champion_v2`). Le traitement du signal est dans `src/signal_processing`, l'extraction dans `extract_spectrum`
+(paramètres dans `params.yaml`), le filtre est l'option `--level-range 0.5 2` de `build_spectra`. Les deux étapes DVC se
+relancent sans retraiter le brut.
 
 La v0.1.0 a d'abord appris de façon **incrémentale** (télécharger, traiter, supprimer le brut, réentraîner, mesurer,
 s'arrêter quand le score stagne). La v0.2.0 conserve le principe « ne garder que les courbes » ; la v0.3.0 a retraité
@@ -179,39 +198,96 @@ l'écart, et la saturation du Ridge, indiquent que le levier principal est l'ext
 
 ## Démarrage
 
+Les étapes sont classées par ce qu'elles exigent : l'étape 1 fonctionne sans aucun compte.
+
+### 1. Cloner, installer, vérifier (aucun identifiant)
+
 ```bash
-uv sync
-uv run python -m pytest tests/unit -q -m "not slow" --deselect tests/unit/test_train.py
+git clone https://github.com/ThGoncal/ariel-data-challenge-2025.git
+cd ariel-data-challenge-2025
 
-# reproduire le modèle champion (nécessite l'accès DVC/DagsHub)
-dvc pull
-dvc repro --single-item spectra
-dvc repro --single-item train_champion
+# uv : gestionnaire d'environnement Python (https://docs.astral.sh/uv/), s'il n'est pas déjà installé
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# inférence : contrôle de cohérence, puis soumission
-uv run python -m src.pipelines.predict_test --check --raw-root <dossier brut> --folder train --ids <id> <id>
-uv run python -m src.pipelines.predict_test --raw-root <dossier brut> --folder test
-
-# analyses (sur les spectres filtrés ou non)
-uv run python -m scripts.learning_curve --plot docs/learning_curve.png      # courbe d'apprentissage
-uv run python -m scripts.diagnose_outliers                                  # planètes aberrantes
-uv run python -m scripts.compare_sigma_cv                                   # variantes de σ (long : résidus leave-one-out)
-uv run python -m scripts.compare_pca --level-range 0.5 2                    # sous-espace PCA
-uv run python -m scripts.compare_filter                                     # plage du filtre de qualité
+uv sync          # crée l'environnement virtuel .venv et installe les dépendances verrouillées (uv.lock)
+uv run python -m pytest tests/unit -q -m "not slow" --deselect tests/unit/test_train.py     # environ 1 min 30
 ```
 
-Identifiants : `~/.kaggle/kaggle.json` ou variables `KAGGLE_USERNAME` / `KAGGLE_KEY`, et identifiants DagsHub
-(`.env`, non versionné). `dvc repro` sans argument relancerait aussi la boucle de téléchargement de la v0.1.0 :
-utiliser `--single-item`.
+Développé et testé avec Python 3.12 sous Linux (WSL). Les tests unitaires utilisent des données synthétiques : ils ne
+nécessitent ni les données du concours ni DVC. Sans identifiants, on peut aussi lire les résultats dans `reports/`
+et les figures dans `docs/`.
+
+### 2. Récupérer les données et le modèle (identifiants DagsHub)
+
+Les courbes de lumière, les spectres et le modèle sont versionnés avec DVC sur DagsHub (remote `storage`, voir
+`.dvc/config`). Ce remote demande des identifiants personnels, à enregistrer **en local** (fichier `.dvc/config.local`,
+non versionné) avec `dvc remote modify --local storage ...` (voir la documentation de DVC et de DagsHub). Ensuite :
+
+```bash
+uv run dvc pull          # télécharge courbes, spectres et modèle aux versions du commit courant
+uv run dvc status        # vérifie que le dépôt local correspond à dvc.lock
+```
+
+Le suivi MLflow utilise les mêmes identifiants DagsHub, dans un fichier `.env` à la racine (non versionné).
+
+### 3. Reproduire le modèle champion
+
+```bash
+uv run dvc repro --single-item spectra           # courbes -> spectres (découpage split_v2, filtre de qualité)
+uv run dvc repro --single-item train_champion    # entraîne le Ridge, écrit models/champion_v2 et reports/champion/metrics.json
+cat reports/champion/metrics.json                # score de validation fixe et de validation croisée
+```
+
+`dvc repro` **sans argument** relancerait aussi la boucle de téléchargement de la v0.1.0 : toujours utiliser
+`--single-item`.
+
+### 4. Inférence sur une planète (données brutes du concours)
+
+Il faut les données brutes de la planète, téléchargées depuis Kaggle (identifiants dans `~/.kaggle/kaggle.json` ou
+variables `KAGGLE_USERNAME` / `KAGGLE_KEY`). `--raw-root` désigne le dossier qui contient les sous-dossiers `train/` et
+`test/`, un dossier par planète.
+
+```bash
+# contrôle de cohérence : refait la chaîne depuis le brut sur des planètes d'entraînement et compare à l'entraînement
+uv run python -m src.pipelines.predict_test --check --raw-root <dossier brut> --folder train --ids <id> <id>
+
+# soumission au format sample_submission.csv, écrite dans submissions/
+uv run python -m src.pipelines.predict_test --raw-root <dossier brut> --folder test
+```
+
+### 5. Refaire les analyses de ce README
+
+```bash
+uv run python -m scripts.learning_curve --plot docs/learning_curve.png      # courbe d'apprentissage
+uv run python -m scripts.diagnose_outliers                                  # planètes aberrantes
+uv run python -m scripts.compare_filter                                     # plage du filtre de qualité
+uv run python -m scripts.compare_pca --level-range 0.5 2                    # sous-espace PCA
+uv run python -m scripts.compare_sigma_cv                                   # variantes de σ (long : résidus leave-one-out)
+```
+
+Ces scripts lisent `data/processed/spectra_v2` (étape 2 ou 3) ; l'option `--root` permet d'indiquer un autre dossier.
 
 ## Structure
 
 ```
-src/data/ (collecte Kaggle) · src/signal_processing/ (calibration, extraction : transit_fit, spectra)
-src/ml/ (features, métrique) · src/models/ (champion, MLP, baselines)
-src/pipelines/ (build_spectra, train_champion, predict_test, incremental)
-scripts/ (études d'extraction, retraitement, courbe d'apprentissage, diagnostics, comparaisons) · reports/ · configs/ · airflow/ · docker/ · tests/
+ariel-data-challenge-2025/
+├── src/
+│   ├── data/                 collecte Kaggle (v0.1.0)
+│   ├── signal_processing/    calibration, binning, extraction du spectre (transit_fit, spectra)
+│   ├── ml/                   variables d'entrée, métrique GLL
+│   ├── models/               modèle champion (Ridge), MLP, baselines
+│   └── pipelines/            build_spectra, train_champion, predict_test, incremental
+├── scripts/                  retraitement des courbes, courbe d'apprentissage, diagnostics, comparaisons
+├── configs/                  découpages figés (split_v1.json, split_v2.json)
+├── reports/                  résultats mesurés (métriques, tableaux CSV)
+├── docs/                     figures du README
+├── tests/                    tests unitaires (le reste hérite du gabarit de départ)
+├── airflow/ · docker/        orchestration et conteneurs (non validés de bout en bout)
+├── params.yaml               paramètres versionnés (traitement du signal, extraction, modèle)
+└── dvc.yaml · dvc.lock       étapes reproductibles et empreintes des données
 ```
+
+Le dépôt contient aussi `src/api`, `src/features` et `monitoring/`, hérités du gabarit de départ, non validés avec la v0.3.0.
 
 ## Prochaines étapes
 
