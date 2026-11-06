@@ -101,17 +101,18 @@ stages:
       md5: a44a58fbf731436de1e59225726b2b19
       size: 224
   spectra:
-    cmd: python -m src.pipelines.build_spectra --params params.yaml
+    cmd: python -m src.pipelines.build_spectra --params params.yaml --split 
+      configs/split_v2.json --level-range 0.5 2
     deps:
-    - path: configs/split_v1.json
+    - path: configs/split_v2.json
       hash: md5
-      md5: f7372c8c75a95b7eddac2a3fb097f461
-      size: 1939
+      md5: 8698f9aa56e1fe633ac337bcd11832fd
+      size: 13018
     - path: data/processed/transit_curves
       hash: md5
-      md5: 6bf885af781378320f142b50b7f8e0ef.dir
-      size: 183114981
-      nfiles: 160
+      md5: 0cf781e719d25ef635a253c7b2c1c523.dir
+      size: 1258628451
+      nfiles: 1100
     - path: data/raw/train.csv
       hash: md5
       md5: a593e19ea03b5bb5e1e92bf29785b390
@@ -122,8 +123,8 @@ stages:
       size: 156269
     - path: src/pipelines/build_spectra.py
       hash: md5
-      md5: 3bb22c6d3be0bf17cc218916dec41644
-      size: 6787
+      md5: f017b0a0d8b6a30697941623d7a13ae0
+      size: 10713
     - path: src/signal_processing/spectra.py
       hash: md5
       md5: 51cc9477d55f9674c3ca6956a82e0c23
@@ -141,17 +142,17 @@ stages:
     outs:
     - path: data/processed/spectra_v2
       hash: md5
-      md5: 79755610aeb7f8ae8f53f5181f63cb03.dir
-      size: 1916697
-      nfiles: 16
+      md5: 5715c499427678e4975c0f716ad08ab5.dir
+      size: 13093066
+      nfiles: 110
   train_champion:
     cmd: python -m src.pipelines.train_champion --params params.yaml
     deps:
     - path: data/processed/spectra_v2
       hash: md5
-      md5: 79755610aeb7f8ae8f53f5181f63cb03.dir
-      size: 1916697
-      nfiles: 16
+      md5: 5715c499427678e4975c0f716ad08ab5.dir
+      size: 13093066
+      nfiles: 110
     - path: src/ml
       hash: md5
       md5: d751713988987e9331980363e24189ce.dir
@@ -159,12 +160,12 @@ stages:
       nfiles: 0
     - path: src/models/champion.py
       hash: md5
-      md5: 2cbfc0b942a7bbdb51a0f58f4d85eb62
-      size: 2947
+      md5: a80f0c0c1cb08d25714c90632cc1182b
+      size: 4640
     - path: src/pipelines/train_champion.py
       hash: md5
-      md5: 6a593febc65a7c66154b7c70ee367f63
-      size: 8328
+      md5: f62c65839da62e2a6ec45e62e8f94dc4
+      size: 8620
     params:
       params.yaml:
         champion:
@@ -179,10 +180,10 @@ stages:
     outs:
     - path: models/champion_v2
       hash: md5
-      md5: 02bbf13802c5f70eabdb04183aecb605.dir
-      size: 669751
+      md5: add113d451ad2e90e3e212a30c8e0ef2.dir
+      size: 669824
       nfiles: 2
     - path: reports/champion/metrics.json
       hash: md5
-      md5: a3c8149dd4b26d3d3af92ccea6a24f92
-      size: 244
+      md5: 64a469fbed462ac44bfcad23239472e1
+      size: 245

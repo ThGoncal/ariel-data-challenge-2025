@@ -60,11 +60,12 @@ def bootstrap_val(bundle: dict, val: pd.DataFrame, n_boot: int = 200, seed: int 
     return float(np.percentile(s, 5)), float(np.percentile(s, 95))
 
 
-def cross_val(all_df: pd.DataFrame, alpha: float, power: int, n_splits: int, repeats: int, seed: int) -> np.ndarray:
+def cross_val(all_df: pd.DataFrame, alpha: float, power: int, n_splits: int, repeats: int, seed: int,
+              sigma: str = "const", gamma: float | None = None) -> np.ndarray:
     scores = []
     for r in range(repeats):
         for a, b in KFold(n_splits=min(n_splits, len(all_df)), shuffle=True, random_state=seed + r).split(all_df):
-            bundle = fit_champion(all_df.iloc[a], alpha=alpha, power=power)
+            bundle = fit_champion(all_df.iloc[a], alpha=alpha, power=power, sigma=sigma, gamma=gamma)
             scores.append(score_champion(bundle, all_df.iloc[b]))
     return np.array(scores)
 
@@ -104,24 +105,25 @@ def register_model(name: str, bundle_path: Path, meta: dict, src_dir: Path) -> s
 def run(params: dict, root: Path = ROOT, models_dir: Path = Path("models/champion_v2"),
         reports_dir: Path = Path("reports/champion"), use_mlflow: bool = False, register: str | None = None,
         cv: bool = True, seed: int = 42, src_dir: Path = Path("src")) -> dict:
-    cp = {"alpha": 10.0, "power": 2, "cv_folds": 5, "cv_repeats": 3, **(params.get("champion") or {})}
+    cp = {"alpha": 10.0, "power": 2, "cv_folds": 5, "cv_repeats": 3, "sigma": "const", "gamma": None,
+          **(params.get("champion") or {})}
     ext = ExtractionParams.from_params(params)
     train, val = load_layout(root)
-    bundle = fit_champion(train, alpha=cp["alpha"], power=cp["power"])
+    bundle = fit_champion(train, alpha=cp["alpha"], power=cp["power"], sigma=cp["sigma"], gamma=cp["gamma"])
     val_score = score_champion(bundle, val)
     ci05, ci95 = bootstrap_val(bundle, val, seed=seed)
     metrics = {"gll_val": val_score, "gll_val_ci05": ci05, "gll_val_ci95": ci95,
                "n_train": bundle["n_train"], "n_val": int(len(val))}
     if cv:
         s = cross_val(pd.concat([val, train], ignore_index=True), cp["alpha"], cp["power"],
-                      cp["cv_folds"], cp["cv_repeats"], seed)
+                      cp["cv_folds"], cp["cv_repeats"], seed, cp["sigma"], cp["gamma"])
         metrics.update({"gll_cv_mean": float(s.mean()), "gll_cv_sd": float(s.std()), "cv_folds_total": int(len(s))})
 
     manifest_path = Path(root) / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     meta = {"git_commit": git_commit(), "curves_sha256": manifest.get("curves_sha256", "unknown"),
             **{f"extraction_{k}": v for k, v in ext.as_dict().items()}, "alpha": cp["alpha"], "power": cp["power"],
-            "n_train": metrics["n_train"], "gll_val": round(val_score, 4)}
+            "sigma": cp["sigma"], "gamma": (bundle["sigma_fit"] or {}).get("gamma"), "n_train": metrics["n_train"], "gll_val": round(val_score, 4)}
     models_dir, reports_dir = Path(models_dir), Path(reports_dir)
     models_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +135,7 @@ def run(params: dict, root: Path = ROOT, models_dir: Path = Path("models/champio
         import mlflow
         mlflow.set_experiment("ariel-champion")
         with mlflow.start_run(run_name="champion-v0.2.0-ridge-depth"):
-            mlflow.log_params({"alpha": cp["alpha"], "power": cp["power"], **ext.as_dict()})
+            mlflow.log_params({"alpha": cp["alpha"], "power": cp["power"], "sigma": cp["sigma"], **ext.as_dict()})
             mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, (int, float))})
             mlflow.set_tags({k: str(v) for k, v in meta.items()})
             mlflow.log_artifact(str(models_dir / "bundle.joblib"), artifact_path="champion")

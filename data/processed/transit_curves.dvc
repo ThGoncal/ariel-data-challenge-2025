@@ -1,6 +1,6 @@
 outs:
-- md5: 6bf885af781378320f142b50b7f8e0ef.dir
-  size: 183114981
-  nfiles: 160
+- md5: 0cf781e719d25ef635a253c7b2c1c523.dir
+  size: 1258628451
+  nfiles: 1100
   hash: md5
   path: transit_curves
