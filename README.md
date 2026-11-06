@@ -38,7 +38,7 @@ test pour toutes les tailles, bande = ± 1 écart-type entre plis) :
 |---|---|---|---|---|---|---|---|---|
 | Score moyen | 0,207 | 0,262 | 0,297 | 0,317 | 0,326 | 0,335 | 0,343 | **0,345** |
 
-Le score progresse sans palier jusqu'à ~600 planètes, puis **sature** : +0,0080 ± 0,0029 entre 400 et 600, seulement
+La courbe s'arrête à 860 planètes parce que c'est la taille maximale d'un jeu d'entraînement dans une validation croisée à 5 plis sur 1091 planètes (80 %, soit ~873) ; le modèle final est entraîné sur 1071 planètes. Le score progresse sans palier jusqu'à ~600 planètes, puis **sature** : +0,0080 ± 0,0029 entre 400 et 600, seulement
 +0,0027 ± 0,0011 entre 600 et 860. Avec ce modèle, ajouter des planètes ne suffit plus : le facteur limitant est
 l'extraction par planète et le modèle, pas la quantité de données. Les erreurs standard supposent des plis
 indépendants, ce qui n'est pas le cas : elles sont optimistes. Le `alpha` est gardé fixe pour toutes les tailles.
